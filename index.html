@@ -1,0 +1,250 @@
+import React, { useState, useEffect } from "react";
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
+
+export default function App() {
+  const [loggedIn, setLoggedIn] = useState(localStorage.getItem("zsms_logged") === "true");
+  const [tab, setTab] = useState("gonderilen");
+  const [sent, setSent] = useState([]);
+  const [purchased, setPurchased] = useState([]);
+  const [form, setForm] = useState({ tarih: new Date().toISOString().slice(0, 10), bayilik: "", provider: "Savaş Sms", sms: 0, odeme: 0, aciklama: "" });
+
+  const providers = ["Savaş Sms", "Deniz Sms", "Özer Sms"];
+
+  useEffect(() => {
+    const s = localStorage.getItem("sent_sms_v1");
+    const p = localStorage.getItem("purchased_sms_v1");
+    if (s) setSent(JSON.parse(s));
+    if (p) setPurchased(JSON.parse(p));
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("sent_sms_v1", JSON.stringify(sent));
+  }, [sent]);
+  useEffect(() => {
+    localStorage.setItem("purchased_sms_v1", JSON.stringify(purchased));
+  }, [purchased]);
+
+  function handleLogin(e) {
+    e.preventDefault();
+    const user = e.target.username.value.trim();
+    const pass = e.target.password.value.trim();
+    if (user === "admin" && pass === "zsms123") {
+      setLoggedIn(true);
+      localStorage.setItem("zsms_logged", "true");
+    } else {
+      alert("❌ Hatalı kullanıcı adı veya şifre!");
+    }
+  }
+  function handleLogout() {
+    setLoggedIn(false);
+    localStorage.removeItem("zsms_logged");
+  }
+
+  function handleAdd(e) {
+    e.preventDefault();
+    const payload = { ...form, sms: Number(form.sms), odeme: Number(form.odeme), id: Date.now() };
+    if (tab === "gonderilen") setSent([payload, ...sent]);
+    else setPurchased([payload, ...purchased]);
+    setForm({ tarih: new Date().toISOString().slice(0, 10), bayilik: "", provider: "Savaş Sms", sms: 0, odeme: 0, aciklama: "" });
+  }
+
+  function downloadCSV() {
+    const combined = [...sent.map((r) => ({ ...r, type: "Gönderilen" })), ...purchased.map((r) => ({ ...r, type: "Satın Alınan" }))];
+    const header = ["Tip", "Tarih", "Bayilik", "Provider", "SMS", "Ödeme", "Açıklama"];
+    const csv = [header.join(",")]
+      .concat(
+        combined.map((r) => [r.type, r.tarih, r.bayilik, r.provider, r.sms, r.odeme, '"' + (r.aciklama || "") + '"'].join(","))
+      )
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `zsms_rapor_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const totalSent = sent.reduce((a, b) => a + b.sms, 0);
+  const totalPurchased = purchased.reduce((a, b) => a + b.sms, 0);
+  const totalPayment = purchased.reduce((a, b) => a + b.odeme, 0);
+  const providerTotals = providers.map((p) => {
+    const gonderilen = sent.filter((r) => r.provider === p).reduce((a, b) => a + b.sms, 0);
+    const satinAlinan = purchased.filter((r) => r.provider === p).reduce((a, b) => a + b.sms, 0);
+    return { provider: p, gonderilen, satinAlinan, toplam: gonderilen + satinAlinan };
+  });
+
+  const data = [
+    { name: "Gönderilen SMS", value: totalSent },
+    { name: "Satın Alınan SMS", value: totalPurchased },
+  ];
+  const COLORS = ["#00C49F", "#FF8042"];
+
+  if (!loggedIn)
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <form onSubmit={handleLogin} className="bg-white shadow-lg rounded-xl p-8 w-80 text-center">
+          <h1 className="text-2xl font-bold mb-6 text-gray-700">🔐 ZSMS Giriş</h1>
+          <input name="username" placeholder="Kullanıcı Adı" className="w-full border p-2 rounded mb-3" />
+          <input type="password" name="password" placeholder="Şifre" className="w-full border p-2 rounded mb-4" />
+          <button type="submit" className="bg-blue-600 text-white w-full py-2 rounded hover:bg-blue-700">Giriş Yap</button>
+        </form>
+      </div>
+    );
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-800">
+      <header className="bg-white shadow p-4 flex justify-between items-center">
+        <h1 className="text-xl font-bold text-blue-700">📊 ZSMS Yönetim Paneli</h1>
+        <button onClick={handleLogout} className="bg-red-500 text-white px-4 py-1 rounded">Çıkış</button>
+      </header>
+
+      <nav className="flex justify-center gap-4 mt-4">
+        <button onClick={() => setTab("gonderilen")} className={`px-4 py-2 rounded ${tab === "gonderilen" ? "bg-blue-600 text-white" : "bg-white border"}`}>Gönderilen SMS</button>
+        <button onClick={() => setTab("satinAlinan")} className={`px-4 py-2 rounded ${tab === "satinAlinan" ? "bg-blue-600 text-white" : "bg-white border"}`}>Satın Alınan SMS</button>
+        <button onClick={() => setTab("rapor")} className={`px-4 py-2 rounded ${tab === "rapor" ? "bg-blue-600 text-white" : "bg-white border"}`}>Genel Rapor</button>
+      </nav>
+
+      <main className="max-w-6xl mx-auto mt-6 p-4">
+        {tab === "gonderilen" ? (
+          <div className="bg-white shadow rounded-xl p-6">
+            <h2 className="text-lg font-semibold mb-4">Gönderilen SMS Ekle</h2>
+            <form onSubmit={handleAdd} className="grid md:grid-cols-3 gap-3">
+              <input required type="date" value={form.tarih} onChange={(e) => setForm({ ...form, tarih: e.target.value })} className="border p-2 rounded" />
+              <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className="border p-2 rounded">
+                {providers.map((p) => <option key={p}>{p}</option>)}
+              </select>
+              <input required type="number" placeholder="SMS Adedi" value={form.sms} onChange={(e) => setForm({ ...form, sms: e.target.value })} className="border p-2 rounded" />
+              <input placeholder="Açıklama" value={form.aciklama} onChange={(e) => setForm({ ...form, aciklama: e.target.value })} className="border p-2 rounded md:col-span-2" />
+              <button type="submit" className="bg-blue-600 text-white rounded py-2 hover:bg-blue-700">Ekle</button>
+            </form>
+
+            <h3 className="mt-6 font-semibold">Kayıtlar</h3>
+            <div className="overflow-x-auto mt-2">
+              <table className="w-full border text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="p-2">Tarih</th>
+                    <th className="p-2">Provider</th>
+                    <th className="p-2">SMS</th>
+                    <th className="p-2">Açıklama</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sent.map((r) => (
+                    <tr key={r.id} className="border-t">
+                      <td className="p-2">{r.tarih}</td>
+                      <td className="p-2">{r.provider}</td>
+                      <td className="p-2">{r.sms}</td>
+                      <td className="p-2">{r.aciklama}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : tab === "satinAlinan" ? (
+          <div className="bg-white shadow rounded-xl p-6">
+            <h2 className="text-lg font-semibold mb-4">Satın Alınan SMS Ekle</h2>
+            <form onSubmit={handleAdd} className="grid md:grid-cols-3 gap-3">
+              <input required type="date" value={form.tarih} onChange={(e) => setForm({ ...form, tarih: e.target.value })} className="border p-2 rounded" />
+              <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className="border p-2 rounded">
+                {providers.map((p) => <option key={p}>{p}</option>)}
+              </select>
+              <input required type="number" placeholder="SMS Adedi" value={form.sms} onChange={(e) => setForm({ ...form, sms: e.target.value })} className="border p-2 rounded" />
+              <input required type="number" placeholder="Ödeme (TL)" value={form.odeme} onChange={(e) => setForm({ ...form, odeme: e.target.value })} className="border p-2 rounded" />
+              <input placeholder="Açıklama" value={form.aciklama} onChange={(e) => setForm({ ...form, aciklama: e.target.value })} className="border p-2 rounded md:col-span-2" />
+              <button type="submit" className="bg-blue-600 text-white rounded py-2 hover:bg-blue-700">Ekle</button>
+            </form>
+
+            <h3 className="mt-6 font-semibold">Kayıtlar</h3>
+            <div className="overflow-x-auto mt-2">
+              <table className="w-full border text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="p-2">Tarih</th>
+                    <th className="p-2">Provider</th>
+                    <th className="p-2">SMS</th>
+                    <th className="p-2">Ödeme (TL)</th>
+                    <th className="p-2">Açıklama</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {purchased.map((r) => (
+                    <tr key={r.id} className="border-t">
+                      <td className="p-2">{r.tarih}</td>
+                      <td className="p-2">{r.provider}</td>
+                      <td className="p-2">{r.sms}</td>
+                      <td className="p-2">{r.odeme}</td>
+                      <td className="p-2">{r.aciklama}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-white shadow rounded-xl p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">📈 Genel Rapor</h2>
+              <button onClick={downloadCSV} className="bg-amber-500 text-white px-4 py-2 rounded hover:bg-amber-600">CSV İndir</button>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <p>Gönderilen SMS</p>
+                <h3 className="text-2xl font-bold text-blue-700">{totalSent}</h3>
+              </div>
+              <div className="bg-green-50 p-4 rounded-lg">
+                <p>Satın Alınan SMS</p>
+                <h3 className="text-2xl font-bold text-green-700">{totalPurchased}</h3>
+              </div>
+              <div className="bg-amber-50 p-4 rounded-lg">
+                <p>Toplam Ödeme</p>
+                <h3 className="text-2xl font-bold text-amber-700">{totalPayment.toFixed(2)} TL</h3>
+              </div>
+            </div>
+
+            <h3 className="font-semibold mb-2">Provider Bazlı Dağılım</h3>
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full border text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="p-2">Provider</th>
+                    <th className="p-2">Gönderilen SMS</th>
+                    <th className="p-2">Satın Alınan SMS</th>
+                    <th className="p-2">Toplam</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {providerTotals.map((r) => (
+                    <tr key={r.provider} className="border-t">
+                      <td className="p-2 font-semibold">{r.provider}</td>
+                      <td className="p-2">{r.gonderilen}</td>
+                      <td className="p-2">{r.satinAlinan}</td>
+                      <td className="p-2 font-semibold">{r.toplam}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={data} cx="50%" cy="50%" labelLine={false} outerRadius={100} fill="#8884d8" dataKey="value">
+                    {data.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
